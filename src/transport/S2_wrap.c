@@ -756,6 +756,34 @@ void S2_get_hw_random(uint8_t *buf, uint8_t len) {
   }
 }
 
+static bool isValidSequenceNumber(node_t srcNode, node_t destNode, uint8_t seqNo)
+{
+  bool ret = false;
+  for (uint8_t i = 0;  i < SPAN_TABLE_SIZE; i++)
+  {
+    if (s2_ctx->span_table[i].lnode == destNode && s2_ctx->span_table[i].rnode == srcNode)
+    {
+      ret = (s2_ctx->span_table[i].rx_seq != seqNo);
+    }
+    else
+    {
+      ret = true;
+    }
+  }
+  return ret;
+}
+
+static bool CheckDuplicate(uint8_t* pCmd, uint8_t seqNo, node_t srcNode, node_t destNode)
+{
+  bool isDuplicate = false;
+  if (!isValidSequenceNumber(srcNode, destNode, seqNo))
+  {
+    isDuplicate = true;
+  }
+  return isDuplicate;
+}
+
+
 void /*RET Nothing                  */
 security2_CommandHandler(ts_param_t* p,
 const ZW_APPLICATION_TX_BUFFER *pCmd, uint16_t cmdLength) /* IN Number of command bytes including the command */
@@ -768,6 +796,21 @@ const ZW_APPLICATION_TX_BUFFER *pCmd, uint16_t cmdLength) /* IN Number of comman
   conn.tx_options = 0;
   conn.rx_options = p->rx_flags & ( RECEIVE_STATUS_TYPE_BROAD |  RECEIVE_STATUS_TYPE_MULTI) ? S2_RXOPTION_MULTICAST : 0;
 
+  if ((cmdLength > 2 &&
+      (pCmd->ZW_Common.cmd == SECURITY_2_NONCE_GET ||
+      pCmd->ZW_Common.cmd == SECURITY_2_NONCE_REPORT ||
+      pCmd->ZW_Common.cmd == SECURITY_2_MESSAGE_ENCAPSULATION)))
+  {
+    uint8_t seqNo = (uint8_t) pCmd->ZW_Security2NonceGetFrame.sequenceNumber;
+    if (p->rx_flags & (RECEIVE_STATUS_TYPE_BROAD | RECEIVE_STATUS_TYPE_MULTI)) 
+    {
+      bool isDuplicate = CheckDuplicate((uint8_t*) pCmd, seqNo, p->snode, p->dnode);
+      if (isDuplicate)
+      {
+        return;
+      }
+    }
+  }
   S2_application_command_handler(s2_ctx,&conn,(uint8_t*) pCmd,cmdLength);
 }
 
